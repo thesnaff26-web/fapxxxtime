@@ -12,7 +12,7 @@ const i18n = {
  fr:['Connexion','Mon compte','Créer un compte','Connexion','Déjà inscrit ? Connexion','Pas de compte ? Inscription','Confirmez votre e-mail.','Enregistrer l’historique (facultatif)','Désactivé par défaut.','Effacer l’historique','Déconnexion','Historique effacé.','Paramètres enregistrés.','E-mail','Mot de passe','Compte créé. Vérifiez votre e-mail.'],
  pt:['Entrar','Minha conta','Criar conta','Entrar','Já tem conta? Entrar','Sem conta? Cadastre-se','Confirme seu e-mail.','Salvar histórico (opcional)','Desativado por padrão.','Limpar histórico','Sair','Histórico limpo.','Configurações salvas.','E-mail','Senha','Conta criada. Verifique seu e-mail.']
 };
-let db=null, user=null, signup=false, historyEnabled=false, busy=false;
+let db=null, user=null, signup=false, historyEnabled=false, busy=false, nickname='',commentToken=0;
 const tr=n=>(i18n[typeof lang==='string'?lang:'en']||i18n.en)[n];
 const status=s=>$a('auth-status').textContent=s||'';
 const message=s=>$a('auth-message').textContent=s||'';
@@ -35,16 +35,16 @@ function guestFavs(){try{const x=JSON.parse(localStorage.getItem('fapxxxtime-fav
 async function refreshUser(){
  const {data:{user:next},error}=await db.auth.getUser();if(error)status(error.message);
  user=next||null;
- if(!user){historyEnabled=false;favs=guestFavs();paint();render();return}
+ if(!user){historyEnabled=false;nickname='';favs=guestFavs();paint();render();void loadComments();return}
  const [pref,fs]=await Promise.all([
- db.from('user_preferences').select('language,theme,save_watch_history').eq('user_id',user.id).maybeSingle(),
+ db.from('user_preferences').select('language,theme,save_watch_history,nickname').eq('user_id',user.id).maybeSingle(),
  db.from('user_favorites').select('video_id').eq('user_id',user.id)
  ]);
  if(pref.error)status(pref.error.message);
  if(fs.error)status(fs.error.message);
- if(pref.data){historyEnabled=!!pref.data.save_watch_history;if(pref.data.language&&labels[pref.data.language]){lang=pref.data.language;try{localStorage.setItem('fapxxxtime-language',lang)}catch{}}}
+ if(pref.data){nickname=pref.data.nickname||'';historyEnabled=!!pref.data.save_watch_history;if(pref.data.language&&labels[pref.data.language]){lang=pref.data.language;try{localStorage.setItem('fapxxxtime-language',lang)}catch{}}}
  else {const {error:e}=await db.from('user_preferences').upsert({user_id:user.id,language:lang,theme:'dark',save_watch_history:false},{onConflict:'user_id'});if(e)status(e.message)}
- favs=(fs.data||[]).map(x=>x.video_id);paint();render();
+ favs=(fs.data||[]).map(x=>x.video_id);paint();render();void loadComments();
 }
 async function setFavorite(id){
  if(busy)return;
@@ -73,7 +73,12 @@ $a('auth-form').addEventListener('submit',async e=>{
   const redirect=location.origin+location.pathname;
   const r=signup?await db.auth.signUp({email,password,options:{emailRedirectTo:redirect}}):await db.auth.signInWithPassword({email,password});
   if(r.error)throw r.error;
-  if(signup){message(tr(15));signup=false;paint()}else{await refreshUser();close()}
+  if(signup){
+     if(r.data?.session&&r.data?.user){
+       const x=await db.from('user_preferences').upsert({user_id:r.data.user.id,nickname:nick,language:lang,theme:'dark',save_watch_history:false},{onConflict:'user_id'});
+       if(x.error)message(x.error.message);else{await refreshUser();close()}
+     }else{message(tr(15));signup=false;paint()}
+   }else{await refreshUser();close()}
  }catch(err){message(err.message||String(err))}finally{$a('auth-submit').disabled=false}
 });
 $a('auth-logout').addEventListener('click',async()=>{if(!db)return;const {error}=await db.auth.signOut();if(error)message(error.message);else{await refreshUser();close()}});
@@ -102,6 +107,57 @@ $a('player').addEventListener('play',async()=>{
  const {error}=await db.from('user_watch_history').upsert({user_id:user.id,video_id:id,last_watched_at:new Date().toISOString()},{onConflict:'user_id,video_id'});
  if(error)status(error.message);
 });
+
+ const translations={
+ ru:{nickname:'Никнейм',save:'Сохранить никнейм',format:'Никнейм: 3–24 латинские буквы, цифры или _',saved:'Никнейм сохранён',comments:'Комментарии',login:'Войди, чтобы комментировать',choose:'Сначала укажи никнейм в личном кабинете',write:'Напиши комментарий (до 1000 символов)',send:'Опубликовать',empty:'Пока нет комментариев',remove:'Удалить'},
+ en:{nickname:'Nickname',save:'Save nickname',format:'Nickname: 3–24 Latin letters, digits or _',saved:'Nickname saved',comments:'Comments',login:'Log in to comment',choose:'Set a nickname in your account first',write:'Write a comment (max 1000 characters)',send:'Post',empty:'No comments yet',remove:'Delete'}
+ };
+ const tx=k=>(translations[typeof lang==='string'?lang:'en']||translations.en)[k]||translations.en[k];
+ const validNick=n=>/^[a-zA-Z0-9_]{3,24}$/.test(n);
+ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ $a('nickname-save').addEventListener('click',async()=>{
+   if(!user||!db)return;
+   const n=$a('nickname-input').value.trim();
+   if(!validNick(n)){message(tx('format'));return}
+   const {error}=await db.from('user_preferences').update({nickname:n,updated_at:new Date().toISOString()}).eq('user_id',user.id);
+   if(error){message(error.message);return}
+   nickname=n;message(tx('saved'));void loadComments();
+ });
+ async function loadComments(){
+   if(!db)return;
+   const id=location.hash.startsWith('#watch/')?idFromHash():null,token=++commentToken;
+   if(!videos.some(v=>v.id===id))return;
+   $a('comments-title').textContent=tx('comments');
+   $a('comments-hint').textContent=!user?tx('login'):!nickname?tx('choose'):'';
+   $a('comment-form').hidden=!user||!nickname;
+   $a('comment-body').placeholder=tx('write');$a('comment-send').textContent=tx('send');
+   const {data,error}=await db.from('video_comments').select('id,user_id,body,created_at').eq('video_id',id).order('created_at',{ascending:false}).limit(100);
+   if(token!==commentToken)return;
+   if(error){$a('comment-error').textContent=error.message;return}
+   const {data:authors}=await db.rpc('comment_authors_for_video',{p_video_id:id});
+   if(token!==commentToken)return;
+   const names=new Map((authors||[]).map(a=>[a.user_id,a.nickname]));
+   $a('comments-list').innerHTML=data?.length?data.map(c=>`<div class="comment"><strong>${esc(names.get(c.user_id)||'User')}</strong><small>${new Date(c.created_at).toLocaleDateString(lang)}</small><p>${esc(c.body)}</p>${user?.id===c.user_id?`<button data-comment-delete="${c.id}">${tx('remove')}</button>`:''}</div>`).join(''):`<p class="community-hint">${tx('empty')}</p>`;
+ }
+ $a('comment-form').addEventListener('submit',async e=>{
+   e.preventDefault();if(!user||!nickname||!db)return;
+   const body=$a('comment-body').value.trim(),id=idFromHash();
+   if(!body||body.length>1000||!videos.some(v=>v.id===id))return;
+   $a('comment-send').disabled=true;
+   const {error}=await db.from('video_comments').insert({user_id:user.id,video_id:id,body});
+   $a('comment-send').disabled=false;
+   if(error){$a('comment-error').textContent=error.message;return}
+   $a('comment-body').value='';$a('comment-error').textContent='';void loadComments();
+ });
+ $a('comments-list').addEventListener('click',async e=>{
+   const b=e.target.closest('[data-comment-delete]');if(!b||!user||!db)return;
+   b.disabled=true;
+   const {error}=await db.from('video_comments').delete().eq('id',b.dataset.commentDelete).eq('user_id',user.id);
+   if(error){$a('comment-error').textContent=error.message;b.disabled=false}else void loadComments();
+ });
+ window.addEventListener('hashchange',()=>void loadComments());
+ $a('language').addEventListener('change',()=>{paint();void loadComments()});
+
 paint();
 if(!window.supabase?.createClient){status('Account service unavailable. Check internet access and reload.');return}
 db=window.supabase.createClient(PROJECT_URL,PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
