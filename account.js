@@ -121,7 +121,7 @@ $a('player').addEventListener('play',async()=>{
    if(!validNick(n)){message(tx('format'));return}
    const {error}=await db.from('user_preferences').update({nickname:n,updated_at:new Date().toISOString()}).eq('user_id',user.id);
    if(error){message(error.message);return}
-   nickname=n;message(tx('saved'));void loadComments();
+   nickname=n;paint();message(tx('saved'));void loadComments();
  });
  async function loadComments(){
    if(!db)return;
