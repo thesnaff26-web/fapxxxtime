@@ -20,6 +20,7 @@ function paint(){
  $a('account-btn').textContent=user?tr(1):tr(0);
  $a('auth-title').textContent=user?tr(1):signup?tr(2):tr(3);
  $a('auth-guest').hidden=!!user;$a('auth-user').hidden=!user;
+ const signupWrap=$a('signup-nick-wrap');if(signupWrap)signupWrap.hidden=!signup;
  $a('auth-submit').textContent=signup?tr(2):tr(3);
  $a('auth-switch').textContent=signup?tr(4):tr(5);
  $a('auth-note').textContent=tr(6);
@@ -28,6 +29,10 @@ function paint(){
  $a('email-label').textContent=tr(13);$a('password-label').textContent=tr(14);
  $a('history-consent').checked=historyEnabled;
  $a('auth-user-email').textContent=user?.email||'';
+ const field=$a('nickname-input'),button=$a('nickname-save'),hint=$a('nickname-hint');
+ if(field){field.value=nickname;field.readOnly=!!nickname;field.setAttribute('aria-readonly',nickname?'true':'false');field.style.opacity=nickname?'0.72':'1';}
+ if(button)button.hidden=!!nickname;
+ if(hint)hint.textContent=nickname?lockedLabel():tx('format');
 }
 function open(){paint();$a('auth-overlay').classList.add('open');$a('auth-overlay').setAttribute('aria-hidden','false');$a('auth-close').focus()}
 function close(){$a('auth-overlay').classList.remove('open');$a('auth-overlay').setAttribute('aria-hidden','true');message('')}
