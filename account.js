@@ -32,7 +32,7 @@ function paint(){
  const field=$a('nickname-input'),button=$a('nickname-save'),hint=$a('nickname-hint');
  if(field){field.value=nickname;field.readOnly=!!nickname;field.setAttribute('aria-readonly',nickname?'true':'false');field.style.opacity=nickname?'0.72':'1';}
  if(button)button.hidden=!!nickname;
- if(hint)hint.textContent=nickname?lockedLabel():tx('format');
+ if(hint)hint.textContent=nickname?(lang==='ru'?'Никнейм закреплён навсегда':'Nickname is permanently locked'):tx('format');
 }
 function open(){paint();$a('auth-overlay').classList.add('open');$a('auth-overlay').setAttribute('aria-hidden','false');$a('auth-close').focus()}
 function close(){$a('auth-overlay').classList.remove('open');$a('auth-overlay').setAttribute('aria-hidden','true');message('')}
@@ -73,6 +73,8 @@ $a('auth-switch').addEventListener('click',()=>{signup=!signup;message('');paint
 $a('auth-form').addEventListener('submit',async e=>{
  e.preventDefault();if(!db)return;message('');
  const email=$a('auth-email').value.trim(),password=$a('auth-password').value;
+ const nick=$a('signup-nick')?.value.trim()||'';
+ if(signup&&!validNick(nick)){message(tx('format'));return}
  $a('auth-submit').disabled=true;
  try{
   const redirect=location.origin+location.pathname;
@@ -121,7 +123,7 @@ $a('player').addEventListener('play',async()=>{
  const validNick=n=>/^[a-zA-Z0-9_]{3,24}$/.test(n);
  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  $a('nickname-save').addEventListener('click',async()=>{
-   if(!user||!db)return;
+   if(!user||!db||nickname)return;
    const n=$a('nickname-input').value.trim();
    if(!validNick(n)){message(tx('format'));return}
    const {error}=await db.from('user_preferences').update({nickname:n,updated_at:new Date().toISOString()}).eq('user_id',user.id);
