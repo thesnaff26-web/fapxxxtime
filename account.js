@@ -17,7 +17,11 @@ const tr=n=>(i18n[typeof lang==='string'?lang:'en']||i18n.en)[n];
 const status=s=>$a('auth-status').textContent=s||'';
 const message=s=>$a('auth-message').textContent=s||'';
 function paint(){
- $a('account-btn').textContent=user?tr(1):tr(0);
+ const accountButton=$a('account-btn');
+ accountButton.disabled=false;accountButton.classList.remove('auth-loading');
+ accountButton.textContent=user?(nickname||tr(1)):tr(0);
+ accountButton.title=user?(nickname||tr(1)):tr(0);
+ accountButton.setAttribute('aria-label',user?tr(1)+(nickname?' — '+nickname:''):tr(0));
  $a('auth-title').textContent=user?tr(1):signup?tr(2):tr(3);
  $a('auth-guest').hidden=!!user;$a('auth-user').hidden=!user;
  const signupWrap=$a('signup-nick-wrap');if(signupWrap)signupWrap.hidden=!signup;
